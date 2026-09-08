@@ -1,0 +1,2 @@
+# El limite superior es a proposito: el SDK de MCP v2 renombro nombres publicos.
+mcp>=1.27.0,<2.0.0
