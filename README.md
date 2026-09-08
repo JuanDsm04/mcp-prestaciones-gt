@@ -37,7 +37,7 @@ solo subestima el costo real en alrededor de un 33%.
 ## Correrlo en local
 
 ```bash
-git clone https://github.com/<tu-usuario>/mcp-prestaciones-gt.git
+git clone https://github.com/JuanDsm04/mcp-prestaciones-gt.git
 cd mcp-prestaciones-gt
 
 python -m venv .venv
