@@ -1,167 +1,145 @@
-# mcp-prestaciones-gt — servidor MCP remoto
+# mcp-prestaciones-gt | Remote MCP Server
 
-Calculadora de prestaciones laborales de Guatemala expuesta como **servidor MCP
-remoto**. A diferencia de un servidor local, no lo lanza el anfitrión como
-subproceso: corre en la nube por su cuenta y los clientes se conectan por HTTP.
+Guatemalan labor benefits calculator exposed as a **remote MCP server**. Unlike
+a local server, the host does not launch it as a subprocess: it runs
+independently in the cloud, and clients connect to it over HTTP.
 
-Proyecto para **CC3067 Redes**, Universidad del Valle de Guatemala (Proyecto 1,
-requisito 7: *crear un servidor MCP que se ejecute de forma remota*).
+The assignment allows the functionality to be trivial as long as it runs
+remotely, so the interesting part here is not the calculation itself but the
+transport: the same JSON-RPC 2.0 messages used by the stdio transport, now sent
+inside HTTP POST requests.
 
-```
-   Anfitrión MCP (chatbot)                    Nube (Render)
-            |                                       |
-            |  POST /mcp  ── JSON-RPC 2.0 ──────>   |
-            |  <────────── 200 + respuesta ──────   |
-            |         HTTPS / TCP / IP              |
-```
+## Tools
 
-El enunciado permite que la funcionalidad sea trivial siempre que se ejecute de
-forma remota, así que lo interesante aquí no es el cálculo sino el transporte:
-los mismos mensajes JSON-RPC 2.0 del transporte stdio, ahora dentro de peticiones
-HTTP POST.
-
-## Herramientas
-
-| Herramienta | Qué calcula |
+| Tool | What it calculates |
 |---|---|
-| `calcular_bono_14` | Bono 14, completo o proporcional a los meses trabajados |
-| `calcular_aguinaldo` | Aguinaldo, con el desglose de los dos pagos |
-| `calcular_indemnizacion` | Indemnización por despido injustificado |
-| `calcular_vacaciones` | Pago de vacaciones no gozadas |
-| `costo_total_empleado` | Lo que cuesta realmente un empleado al mes |
+| `calcular_bono_14` | Bono 14, either in full or prorated based on the number of months worked |
+| `calcular_aguinaldo` | Aguinaldo, including a breakdown of the two payments |
+| `calcular_indemnizacion` | Severance pay for unjustified dismissal |
+| `calcular_vacaciones` | Payment for unused vacation days |
+| `costo_total_empleado` | The actual monthly cost of an employee |
 
-`costo_total_empleado` es la más útil: suma salario, provisiones mensuales de
-Bono 14, aguinaldo y vacaciones, y la cuota patronal del IGSS. El salario por sí
-solo subestima el costo real en alrededor de un 33%.
-
-## Correrlo en local
+## Run Locally
 
 ```bash
 git clone https://github.com/JuanDsm04/mcp-prestaciones-gt.git
 cd mcp-prestaciones-gt
-
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
+source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python server.py
 ```
 
-Queda escuchando en `http://0.0.0.0:8080/mcp`. Para usar otro puerto,
+The server listens at `http://0.0.0.0:8080/mcp`. To use a different port, run
 `PORT=9000 python server.py`.
 
-## Desplegarlo en Render
+## Deploy to Render
 
-Render tiene plan gratuito sin tarjeta de crédito. Los pasos:
+Using Render's free plan:
 
-1. Sube este repositorio a GitHub (público o privado, ambos sirven).
-2. En [render.com](https://render.com), **New → Web Service** y conecta el repo.
-3. Configura:
+1. Push this repository to GitHub (either public or private will work).
+2. On [render.com](https://render.com), select **New → Web Service** and connect the repository.
+3. Configure the service:
    - **Language**: Python 3
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `python server.py`
    - **Instance Type**: Free
-4. Deploy. Al terminar te da una URL como
+4. Deploy. Once complete, Render will provide a URL such as
    `https://mcp-prestaciones-gt.onrender.com`.
 
-Tu endpoint MCP es esa URL más `/mcp`.
+**Note:** Your MCP endpoint is that URL plus `/mcp`. You do not need to configure
+the port: Render injects the `PORT` environment variable, and the server reads
+it. No additional environment variables or database are required.
 
-No hay que configurar el puerto: Render inyecta la variable `PORT` y el servidor
-la lee. Tampoco hacen falta variables de entorno ni base de datos.
+### The Free Plan Spins Down
 
-### El plan gratuito duerme
+This is what causes the most problems during a demo. The service shuts down
+after **15 minutes without traffic** and takes about **one minute** to wake up.
+Because MCP's `initialize` request is the first message sent by the host, a cold
+connection may exceed the client's timeout.
 
-Es lo que más problemas da en una demo. El servicio se apaga tras **15 minutos
-sin tráfico** y tarda alrededor de **un minuto** en despertar. Como el `initialize`
-de MCP es lo primero que manda el anfitrión, una conexión en frío puede exceder el
-tiempo de espera del cliente.
+There are two ways to handle this, and it is best to use both:
 
-Dos formas de manejarlo, y conviene hacer las dos:
+- **Wake it up before the demo.** Open the URL in your browser and wait for it to
+  respond. It will remain active for 15 minutes.
+- **Increase the client's timeout.** Set the `timeout` field in the chatbot's
+  server entry (see below).
 
-- **Despiértalo antes de la demo.** Abre la URL en el navegador y espera a que
-  responda. Queda activo 15 minutos.
-- **Sube el tiempo de espera del cliente.** En el registro del chatbot, el campo
-  `timeout` (ver abajo).
+## Connect It to a Host
 
-## Conectarlo a un anfitrión
-
-En `config/mcp_servers.json` del chatbot:
+In the chatbot's `config/mcp_servers.json` file:
 
 ```json
 "prestaciones": {
   "enabled": true,
   "transport": "http",
-  "description": "Servidor MCP remoto propio: prestaciones laborales de Guatemala.",
+  "description": "Custom remote MCP server for Guatemalan labor benefits.",
   "url": "https://mcp-prestaciones-gt.onrender.com/mcp",
   "headers": {},
   "timeout": 120
 }
 ```
 
-Para probar contra la instancia local en lugar de la desplegada, cambia la `url`
-a `http://127.0.0.1:8080/mcp`.
+To test against the local instance instead of the deployed one, change the
+`url` to `http://127.0.0.1:8080/mcp`.
 
-## Especificación
+## Specification
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Nombre del servidor | `prestaciones-gt` |
-| Protocolo | Model Context Protocol sobre JSON-RPC 2.0 |
-| Transporte | Streamable HTTP |
+| Server name | `prestaciones-gt` |
+| Protocol | Model Context Protocol over JSON-RPC 2.0 |
+| Transport | Streamable HTTP |
 | Endpoint | `POST /mcp` |
 | SDK | MCP Python SDK v1 (`mcp>=1.27,<2`), `FastMCP` |
-| Sesiones | `stateless_http=True`: cada petición es independiente |
+| Sessions | `stateless_http=True`: each request is independent |
 
-El servidor se declara **stateless** a propósito. Un servidor con sesión guarda
-estado entre peticiones y devuelve un `Mcp-Session-Id` que el cliente debe
-repetir; eso se rompe cuando la plataforma reinicia el contenedor o levanta otra
-instancia, que es justo lo que hace un plan gratuito. Sin sesión, cualquier
-instancia puede atender cualquier petición.
+The server is intentionally declared **stateless**. A stateful server preserves
+state between requests and returns an `Mcp-Session-Id` that the client must send
+with subsequent requests. This breaks when the platform restarts the container
+or launches another instance, which is exactly what can happen on a free plan.
+Without sessions, any instance can handle any request.
 
-### Parámetros
+### Parameters
 
-Todos los montos van en quetzales y todas las herramientas validan su entrada.
-Un salario negativo o unos meses fuera de rango devuelven un error explicando qué
-se esperaba, no una excepción cruda.
+All amounts are expressed in quetzales, and every tool validates its input. A
+negative salary or a number of months outside the accepted range returns an
+error explaining what was expected rather than a raw exception.
 
-| Herramienta | Parámetros |
+| Tool | Parameters |
 |---|---|
-| `calcular_bono_14` | `salario_mensual` (requerido), `meses_trabajados` (1-12, por defecto 12) |
-| `calcular_aguinaldo` | `salario_mensual` (requerido), `meses_trabajados` (1-12, por defecto 12) |
-| `calcular_indemnizacion` | `salario_mensual` (requerido), `anios` (0 por defecto), `meses` (<12, 0 por defecto) |
-| `calcular_vacaciones` | `salario_mensual` (requerido), `dias_pendientes` (15 por defecto) |
-| `costo_total_empleado` | `salario_mensual` (requerido) |
+| `calcular_bono_14` | `salario_mensual` (required), `meses_trabajados` (1–12, default: 12) |
+| `calcular_aguinaldo` | `salario_mensual` (required), `meses_trabajados` (1–12, default: 12) |
+| `calcular_indemnizacion` | `salario_mensual` (required), `anios` (default: 0), `meses` (<12, default: 0) |
+| `calcular_vacaciones` | `salario_mensual` (required), `dias_pendientes` (default: 15) |
+| `costo_total_empleado` | `salario_mensual` (required) |
 
-### Constantes legales
+### Legal Constants
 
-Están todas juntas al inicio de `calculos.py` para poder actualizarlas en un solo
-lugar si cambian:
+They are all grouped at the beginning of `calculos.py` so they can be updated
+in one place if they change:
 
-| Constante | Valor |
+| Constant | Value |
 |---|---|
 | `TASA_IGSS_PATRONAL` | 12.67% |
 | `TASA_IGSS_LABORAL` | 4.83% |
-| `DIAS_VACACIONES_POR_ANIO` | 15 días hábiles |
+| `DIAS_VACACIONES_POR_ANIO` | 15 working days |
 
-## Estructura
+## Structure
 
 ```
 mcp-prestaciones-gt/
-├── calculos.py        Aritmética pura, sin dependencias
-├── server.py          Registro MCP y arranque HTTP
+├── calculos.py        Pure arithmetic, no dependencies
+├── server.py          MCP registration and HTTP startup
 ├── requirements.txt
-└── Dockerfile         Opcional, para Cloud Run o pruebas con Docker
+└── Dockerfile         Optional, for Cloud Run or Docker testing
 ```
 
-`calculos.py` no sabe que existe MCP y `server.py` solo registra herramientas, así
-que los cálculos se pueden probar sin levantar el servidor.
+`calculos.py` knows nothing about MCP, and `server.py` only registers tools, so
+the calculations can be tested without starting the server.
 
-## Referencias
+## References
 
-* [MCP: transportes](https://modelcontextprotocol.io/docs/learn/architecture)
-* [Especificación de MCP](https://modelcontextprotocol.io/specification/2025-06-18)
+* [MCP transports](https://modelcontextprotocol.io/docs/learn/architecture)
+* [MCP specification](https://modelcontextprotocol.io/specification/2025-06-18)
 * [JSON-RPC 2.0](https://www.jsonrpc.org/)
-
-## Licencia
-
-MIT
